@@ -1,0 +1,284 @@
+[
+    {
+        "id": "tab_iot_project",
+        "type": "tab",
+        "label": "Mini Projekt IoT",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "mqtt_sensors_in",
+        "type": "mqtt in",
+        "z": "tab_iot_project",
+        "name": "Odbiór Sensorów",
+        "topic": "home/sensors",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "mqtt_broker_local",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 150,
+        "y": 120,
+        "wires": [
+            [
+                "debug_sensors",
+                "influx_sensors"
+            ]
+        ]
+    },
+    {
+        "id": "influx_sensors",
+        "type": "influxdb out",
+        "z": "tab_iot_project",
+        "influxdb": "influx_db_local",
+        "name": "Zapis Pomiary",
+        "measurement": "environment",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "organisation",
+        "bucket": "bucket",
+        "x": 480,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "debug_sensors",
+        "type": "debug",
+        "z": "tab_iot_project",
+        "name": "Podgląd Sensorów",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 490,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "mqtt_access_in",
+        "type": "mqtt in",
+        "z": "tab_iot_project",
+        "name": "Żądanie Dostępu",
+        "topic": "home/access/request",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "mqtt_broker_local",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 280,
+        "wires": [
+            [
+                "switch_access"
+            ]
+        ]
+    },
+    {
+        "id": "switch_access",
+        "type": "switch",
+        "z": "tab_iot_project",
+        "name": "Sprawdź ID Karty",
+        "property": "payload.uid",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "WPISZ_TU_SWOJE_UID",
+                "vt": "str"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 370,
+        "y": 280,
+        "wires": [
+            [
+                "set_grant"
+            ],
+            [
+                "set_deny"
+            ]
+        ]
+    },
+    {
+        "id": "set_grant",
+        "type": "change",
+        "z": "tab_iot_project",
+        "name": "Ustaw GRANT",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "GRANT",
+                "tot": "str"
+            },
+            {
+                "t": "set",
+                "p": "access_status",
+                "pt": "msg",
+                "to": "GRANTED",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 600,
+        "y": 240,
+        "wires": [
+            [
+                "mqtt_access_out",
+                "prepare_influx_log"
+            ]
+        ]
+    },
+    {
+        "id": "set_deny",
+        "type": "change",
+        "z": "tab_iot_project",
+        "name": "Ustaw DENY",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "DENY",
+                "tot": "str"
+            },
+            {
+                "t": "set",
+                "p": "access_status",
+                "pt": "msg",
+                "to": "DENIED",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 600,
+        "y": 320,
+        "wires": [
+            [
+                "mqtt_access_out",
+                "prepare_influx_log"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_access_out",
+        "type": "mqtt out",
+        "z": "tab_iot_project",
+        "name": "Wyślij Decyzję",
+        "topic": "home/access/response",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "mqtt_broker_local",
+        "x": 860,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "influx_logs",
+        "type": "influxdb out",
+        "z": "tab_iot_project",
+        "influxdb": "influx_db_local",
+        "name": "Zapis Logów",
+        "measurement": "access_logs",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "organisation",
+        "bucket": "bucket",
+        "x": 850,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "prepare_influx_log",
+        "type": "function",
+        "z": "tab_iot_project",
+        "name": "Formatuj Log",
+        "func": "// Zapisujemy status jako dane dla bazy\nvar status = msg.access_status;\n\n// Ustawiamy nowy payload dla Influxa\nmsg.payload = {\n    status: status,\n    value: 1 // dummy value potrzebna czasem dla wykresow\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 670,
+        "y": 400,
+        "wires": [
+            [
+                "influx_logs"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_broker_local",
+        "type": "mqtt-broker",
+        "name": "Lokalny Mosquitto",
+        "broker": "localhost",
+        "port": "1883",
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "influx_db_local",
+        "type": "influxdb",
+        "hostname": "127.0.0.1",
+        "port": "8086",
+        "protocol": "http",
+        "database": "iot_db",
+        "name": "Local Influx",
+        "usetls": false,
+        "tls": "",
+        "influxdbVersion": "1.x",
+        "url": "http://localhost:8086",
+        "rejectUnauthorized": true
+    }
+]
