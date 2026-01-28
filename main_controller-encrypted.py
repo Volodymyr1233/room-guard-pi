@@ -1,5 +1,3 @@
-# sudo pip3 install adafruit-circuitpython-bme280 adafruit-circuitpython-neopixel mfrc522 paho-mqtt pillow RPi.GPIO w1thermsensor
-
 #!/usr/bin/env python3
 import time
 import json
@@ -8,16 +6,21 @@ import busio
 import neopixel
 import RPi.GPIO as GPIO
 import paho.mqtt.client as mqtt
+import ssl 
 from PIL import Image, ImageDraw, ImageFont
 from mfrc522 import MFRC522
 import adafruit_bme280.advanced as adafruit_bme280
 import lib.oled.SSD1331 as SSD1331
 
+# --- KONFIGURACJA MQTT (Z SZYFROWANIEM) ---
 BROKER = "localhost"
-PORT = 1883
-TOPIC_SENSORS = "home/sensors"          
+PORT = 8883  # <--- ZMIANA PORTU NA 8883 (MQTTS)
+CA_CERT = "/home/pi/ca.crt" 
+
+TOPIC_SENSORS = "home/sensors"
 TOPIC_ACCESS_REQ = "home/access/request"
 TOPIC_ACCESS_RES = "home/access/response"
+
 
 PIN_BUZZER = 23
 PIN_WS2812 = board.D18
@@ -43,18 +46,18 @@ pixels = neopixel.NeoPixel(PIN_WS2812, LED_COUNT, brightness=0.5, auto_write=Fal
 i2c = busio.I2C(board.SCL, board.SDA)
 try:
     bme280 = adafruit_bme280.Adafruit_BME280_I2C(i2c, address=0x76)
-
     bme280.standby_period = adafruit_bme280.STANDBY_TC_500
     bme280.iir_filter = adafruit_bme280.IIR_FILTER_X16
 except Exception as e:
     print(f"Blad BME280: {e}")
     bme280 = None
 
-# 4. OLED (SPI)
+
 disp = SSD1331.SSD1331()
 disp.Init()
 disp.clear()
-# Przygotowanie plotna
+
+
 image = Image.new("RGB", (disp.width, disp.height), "BLACK")
 draw = ImageDraw.Draw(image)
 try:
@@ -82,20 +85,15 @@ def sound_alarm():
         time.sleep(0.1)
 
 def set_leds(color):
-    """Ustawia wszystkie diody na dany kolor (r, g, b)"""
     pixels.fill(color)
     pixels.show()
 
 def update_oled(status_msg, color="WHITE"):
-    """Rysuje interfejs na OLED"""
-
     draw.rectangle((0, 0, disp.width, disp.height), fill="BLACK")
     
-
     draw.text((2, 0), "STATUS:", font=fontSmall, fill="WHITE")
     draw.text((2, 12), status_msg, font=fontBig, fill=color)
     
-
     draw.line((0, 26, 96, 26), fill="BLUE")
     
     # Dane srodowiskowe
@@ -103,8 +101,8 @@ def update_oled(status_msg, color="WHITE"):
     draw.text((2, 39), f"Wilg: {current_hum:.1f} %", font=fontSmall, fill="WHITE")
     draw.text((2, 49), f"Cisn: {current_press:.0f} hPa", font=fontSmall, fill="WHITE")
 
-    
     disp.ShowImage(image, 0, 0)
+
 
 
 
@@ -113,16 +111,15 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(TOPIC_ACCESS_RES)
 
 def on_message(client, userdata, msg):
-    """Reakcja na wiadomosc z Node-RED"""
+
     payload = msg.payload.decode("utf-8")
     print(f"Otrzymano rozkaz: {payload}")
     
     if payload == "GRANT":
-    
         update_oled("WSTEP WOLNY", "GREEN")
         set_leds((0, 255, 0)) 
         sound_beep(0.2)
-        time.sleep(2)       
+        time.sleep(2)        
         set_leds((0, 0, 0))   
         update_oled("CZEKANIE...") 
         
@@ -135,15 +132,24 @@ def on_message(client, userdata, msg):
 
 
 
+
 def main():
     global current_temp, current_hum, current_press, last_sensor_time
     
-    # Setup MQTT Client
     client = mqtt.Client()
     client.on_connect = on_connect
     client.on_message = on_message
     
     try:
+        client.tls_set(ca_certs=CA_CERT, tls_version=ssl.PROTOCOL_TLSv1_2)
+        client.tls_insecure_set(True)
+        print("Konfiguracja TLS zaladowana poprawnie.")
+    except Exception as e:
+        print(f"Blad konfiguracji TLS: {e}")
+        return
+    
+    try:
+        print(f"Laczenie z brokerem {BROKER} na porcie {PORT}...")
         client.connect(BROKER, PORT, 60)
         client.loop_start() 
     except Exception as e:
@@ -157,47 +163,39 @@ def main():
 
     try:
         while True:
-           
             if time.time() - last_sensor_time > SENSOR_INTERVAL:
                 if bme280:
                     current_temp = bme280.temperature
                     current_hum = bme280.humidity
                     current_press = bme280.pressure
                     
-                
                     payload = {
                         "temperature": round(current_temp, 2),
                         "humidity": round(current_hum, 2),
                         "pressure": round(current_press, 2)
                     }
                     
-                    
                     client.publish(TOPIC_SENSORS, json.dumps(payload))
                     print(f"Wyslano dane: {payload}")
                     
-                   
-                    
                 last_sensor_time = time.time()
 
-        
+
             (status, TagType) = reader.MFRC522_Request(reader.PICC_REQIDL)
             if status == reader.MI_OK:
                 (status, uid) = reader.MFRC522_Anticoll()
                 if status == reader.MI_OK:
-                   
+                    
                     uid_str = ":".join([hex(x)[2:].upper().zfill(2) for x in uid])
                     print(f"Wykryto karte: {uid_str}")
                     
                     update_oled("SPRAWDZANIE", "BLUE")
                     
-                    
                     req_payload = {"uid": uid_str}
                     client.publish(TOPIC_ACCESS_REQ, json.dumps(req_payload))
                     
-                  
                     time.sleep(1.0)
-                    
-      
+            
             time.sleep(0.05)
 
     except KeyboardInterrupt:
